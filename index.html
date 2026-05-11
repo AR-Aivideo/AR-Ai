@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR ai - Video Generator</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.paypal.com/sdk/js?client-id=BAA_bdWr_OdmF1y_3tOn55i013VoUO7FC7xJhZCwcR2S4YiQQTJjJgsPhDegYP6rkzQEpu3oUq0a-xvGtA&components=buttons,funding-eligibility&currency=USD"></script>
+    <link href="https://cdn.jsdelivr.net/npm/lucide-static@0.344.0/font/lucide.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background-color: #020617; 
+            color: white; 
+            margin: 0;
+        }
+        .glass { 
+            background: rgba(15, 23, 42, 0.7); 
+            backdrop-filter: blur(16px); 
+            border: 1px solid rgba(255,255,255,0.08); 
+        }
+        .gradient-text { 
+            background: linear-gradient(90deg, #60a5fa, #c084fc); 
+            -webkit-background-clip: text; 
+            -webkit-text-fill-color: transparent; 
+        }
+        .btn-primary {
+            background: linear-gradient(90deg, #2563eb, #7c3aed);
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBZn9twI9HiXgs84bK7nZmpjrnelO6Pn70",
+            authDomain: "ar-ai-82399.firebaseapp.com",
+            projectId: "ar-ai-82399",
+            storageBucket: "ar-ai-82399.firebasestorage.app",
+            messagingSenderId: "378276222105",
+            appId: "1:378276222105:web:54b323909d25f0f1985408",
+            measurementId: "G-6D337BYC0Y"
+        };
+
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const GOOGLE_AI_KEY = "AIzaSyClnf16G9nwzANgd34nKG63crb9Lyqu3HA";
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [userData, setUserData] = useState(null);
+            const [prompt, setPrompt] = useState('');
+            const [isGenerating, setIsGenerating] = useState(false);
+            const [generatedVideo, setGeneratedVideo] = useState(null);
+            const [msg, setMsg] = useState('');
+
+            useEffect(() => {
+                const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
+                    if (currentUser) {
+                        setUser(currentUser);
+                        const userRef = db.collection('users').doc(currentUser.uid);
+                        const doc = await userRef.get();
+                        const today = new Date().toISOString().split('T')[0];
+
+                        if (!doc.exists) {
+                            const refCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+                            const newData = { credits: 5, isSubscribed: false, lastDailyReset: today, referralCode: refCode };
+                            await userRef.set(newData);
+                            setUserData(newData);
+                        } else {
+                            let data = doc.data();
+                            if (data.lastDailyReset !== today) {
+                                await userRef.update({ credits: firebase.firestore.FieldValue.increment(5), lastDailyReset: today });
+                                data.credits += 5;
+                            }
+                            setUserData(data);
+                        }
+                    } else {
+                        setUser(null);
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            const login = () => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+
+            const generate = async () => {
+                if (userData.credits < 1) {
+                    setMsg("Kredit habis! Silakan isi ulang.");
+                    return;
+                }
+                setIsGenerating(true);
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${GOOGLE_AI_KEY}`, {
+                        method: 'POST',
+                        body: JSON.stringify({ instances: [{ prompt: prompt }], parameters: { sampleCount: 1 } })
+                    });
+                    const result = await res.json();
+                    if (result.predictions) {
+                        setGeneratedVideo({ url: `data:image/png;base64,${result.predictions[0].bytesBase64Encoded}`, prompt });
+                        await db.collection('users').doc(user.uid).update({ credits: firebase.firestore.FieldValue.increment(-1) });
+                        setUserData(prev => ({...prev, credits: prev.credits - 1}));
+                    }
+                } catch (e) { setMsg("Gagal membuat video."); }
+                setIsGenerating(false);
+            };
+
+            useEffect(() => {
+                if (user && window.paypal) {
+                    const container = document.getElementById('paypal-button-container');
+                    if (container && container.innerHTML === '') {
+                        window.paypal.Buttons({
+                            style: { layout: 'vertical', color: 'blue', shape: 'pill' },
+                            createOrder: (data, actions) => actions.order.create({
+                                purchase_units: [{ description: "25 Kredit AR ai", amount: { value: '10.00' } }]
+                            }),
+                            onApprove: (data, actions) => actions.order.capture().then(async () => {
+                                await db.collection('users').doc(user.uid).update({ credits: firebase.firestore.FieldValue.increment(25) });
+                                setUserData(prev => ({...prev, credits: prev.credits + 25}));
+                                setMsg("Top-up Berhasil!");
+                            })
+                        }).render('#paypal-button-container');
+                    }
+                }
+            }, [user]);
+
+            if (!user) return (
+                <div className="min-h-screen flex items-center justify-center p-6">
+                    <div className="glass p-10 rounded-[2.5rem] w-full max-w-md text-center">
+                        <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto mb-6 flex items-center justify-center text-2xl font-black italic">AR</div>
+                        <h1 className="text-3xl font-bold mb-2 tracking-tighter">AR <span className="gradient-text">ai</span></h1>
+                        <p className="text-slate-400 text-sm mb-10">Ubah teks menjadi video AI profesional.</p>
+                        <button onClick={login} className="w-full bg-white text-black font-extrabold py-4 rounded-2xl flex items-center justify-center gap-3 active:scale-95 transition-all shadow-xl">
+                            <img src="https://www.google.com/favicon.ico" className="w-5" />
+                            Login dengan Google
+                        </button>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen pb-24">
+                    <nav className="p-6 border-b border-white/5 flex justify-between items-center glass sticky top-0 z-50">
+                        <div className="font-black text-2xl italic">AR <span className="text-blue-500">ai</span></div>
+                        <div className="bg-blue-500/20 text-blue-400 px-4 py-1.5 rounded-full text-xs font-black border border-blue-500/30">
+                            {userData?.credits} KREDIT
+                        </div>
+                    </nav>
+
+                    <main className="p-6 max-w-xl mx-auto space-y-6">
+                        {msg && <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl text-xs text-blue-300 text-center font-bold">{msg}</div>}
+
+                        <div className="glass p-6 rounded-[2rem] shadow-2xl">
+                            <label className="block text-[10px] font-black text-slate-500 mb-4 uppercase tracking-[0.2em]">Prompt Generator</label>
+                            <textarea
+                                className="w-full bg-slate-900/50 border border-white/5 rounded-2xl p-4 min-h-[140px] text-sm text-white focus:ring-2 focus:ring-blue-500 mb-6 outline-none"
+                                placeholder="Masukkan deskripsi video..."
+                                value={prompt}
+                                onChange={e => setPrompt(e.target.value)}
+                            />
+                            <button
+                                onClick={generate}
+                                disabled={isGenerating || !prompt}
+                                className="w-full btn-primary py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-500/20 disabled:opacity-50"
+                            >
+                                {isGenerating ? "Sedang Memproses..." : "Buat Video (1 Kredit)"}
+                            </button>
+                        </div>
+
+                        {generatedVideo && (
+                            <div className="animate-in fade-in zoom-in duration-500">
+                                <div className="relative rounded-[2rem] overflow-hidden shadow-2xl border border-white/10 aspect-video bg-black">
+                                    <img src={generatedVideo.url} className="w-full h-full object-cover" />
+                                    {!userData.isSubscribed && (
+                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 rotate-12">
+                                            <span className="text-2xl font-black border-4 border-white p-2">AR ai WATERMARK</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="glass p-8 rounded-[2.5rem]">
+                            <h3 className="font-black text-lg mb-2">Beli Kredit</h3>
+                            <p className="text-slate-500 text-[10px] mb-8 font-bold uppercase tracking-widest leading-relaxed">Top-up 25 kredit untuk membuat video tanpa watermark.</p>
+                            <div id="paypal-button-container"></div>
+                        </div>
+
+                        <div className="glass p-6 rounded-3xl border-dashed border-white/10">
+                            <p className="text-[10px] text-slate-500 font-bold mb-2 uppercase">Referral Code</p>
+                            <div className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5">
+                                <span className="font-mono text-blue-400 font-bold">{userData?.referralCode}</span>
+                                <button onClick={() => {
+                                    navigator.clipboard.writeText(`https://${window.location.hostname}/?ref=${userData?.referralCode}`);
+                                    setMsg("Link disalin!");
+                                }} className="text-[10px] font-black bg-white/5 px-3 py-1 rounded-md">SALIN LINK</button>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
