@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR-Ai CEO Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+        // CONFIG DASAR (Tanpa API Key AI Studio di sini agar aman)
+        const firebaseConfig = {
+            apiKey: "AIzaSyBw-8RN6ll7ytKJ6xdd8SxkgxY28xjUNzs", 
+            authDomain: "ar-ai-82399.firebaseapp.com",
+            projectId: "ar-ai-82399",
+            storageBucket: "ar-ai-82399.appspot.com",
+            messagingSenderId: "367354673323",
+            appId: "1:367354673323:web:96e83460662d5d886f4bbc"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+
+        window.login = () => signInWithPopup(auth, provider);
+
+        onAuthStateChanged(auth, async (user) => {
+            const loginSection = document.getElementById('login-section');
+            const mainSection = document.getElementById('main-section');
+            if (user) {
+                loginSection.classList.add('hidden');
+                mainSection.classList.remove('hidden');
+                updateCreditsUI(user.uid);
+            } else {
+                loginSection.classList.remove('hidden');
+                mainSection.classList.add('hidden');
+            }
+        });
+
+        async function updateCreditsUI(uid) {
+            const userDoc = await getDoc(doc(db, "users", uid));
+            if (userDoc.exists()) {
+                document.getElementById('credit-count').innerText = userDoc.data().credits || 0;
+            }
+        }
+
+        window.generateImage = async () => {
+            const promptInput = document.getElementById('prompt-input');
+            const btn = document.getElementById('gen-btn');
+            const user = auth.currentUser;
+
+            if (!promptInput.value) return alert("Ketik perintahnya dulu, Ar!");
+            
+            btn.innerText = "Menghubungi AI...";
+            btn.disabled = true;
+
+            try {
+                // 1. Ambil API Key Gemini dari Firestore (Bukan dari kode ini lagi)
+                const secretDoc = await getDoc(doc(db, "secrets", "gemini_config"));
+                if (!secretDoc.exists()) throw new Error("Kunci AI tidak ditemukan di database!");
+                const currentApiKey = secretDoc.data().api_key;
+
+                // 2. Cek Kredit
+                const userRef = doc(db, "users", user.uid);
+                const userDoc = await getDoc(userRef);
+                const currentCredits = userDoc.data().credits || 0;
+
+                if (currentCredits < 1) throw new Error("Kredit kamu habis!");
+
+                // 3. Proses Berhasil (Hanya Simulasi jika API Key sudah divalidasi)
+                alert("Visual sedang diproses menggunakan Kunci Baru!");
+
+                // 4. Potong Kredit
+                await updateDoc(userRef, { credits: currentCredits - 1 });
+                updateCreditsUI(user.uid);
+
+            } catch (err) {
+                alert("Gagal: " + err.message);
+            } finally {
+                btn.innerText = "Buat Visual Ar";
+                btn.disabled = false;
+            }
+        };
+    </script>
+</head>
+<body class="bg-slate-50 min-h-screen flex flex-col items-center p-4">
+
+    <div class="w-full max-w-md flex justify-between items-center mb-8 bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-blue-200">Ar</div>
+            <h1 class="text-xl font-extrabold text-slate-800 tracking-tight">AR-Ai CEO</h1>
+        </div>
+        <div class="bg-blue-50 px-4 py-2 rounded-2xl border border-blue-100 text-blue-700 font-bold flex items-center gap-2">
+            <span class="text-[10px] text-blue-400 uppercase tracking-widest">Kredit</span>
+            <span id="credit-count" class="text-lg">0</span>
+        </div>
+    </div>
+
+    <div id="login-section" class="hidden text-center mt-20 px-6">
+        <h2 class="text-3xl font-black mb-3 text-slate-900 tracking-tight">Perjalanan Dimulai.</h2>
+        <p class="text-slate-500 mb-10 leading-relaxed">Masuk untuk membangun masa depanmu sebagai CEO kelas dunia.</p>
+        <button onclick="login()" class="w-full max-w-xs bg-white border border-slate-200 px-8 py-4 rounded-2xl flex items-center justify-center gap-3 mx-auto shadow-md hover:shadow-lg active:scale-95 transition-all">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/action/google.svg" width="20">
+            <span class="font-bold text-slate-700">Masuk dengan Google</span>
+        </button>
+    </div>
+
+    <div id="main-section" class="hidden w-full max-w-md space-y-6">
+        <div class="bg-white p-8 rounded-[2rem] shadow-xl shadow-slate-200 border border-slate-100">
+            <label class="block text-sm font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Visi CEO Hari Ini</label>
+            <textarea id="prompt-input" 
+                class="w-full h-44 p-5 bg-slate-50 border-2 border-slate-50 rounded-2xl mb-6 focus:border-blue-500 focus:bg-white outline-none transition-all text-lg text-slate-800 placeholder:text-slate-300"
+                placeholder="Ar sedang berdiri di podium memberikan pidato kemenangan..."></textarea>
+            
+            <button id="gen-btn" onclick="generateImage()" 
+                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-200 active:scale-95 transition-all uppercase tracking-widest text-sm">
+                Wujudkan Visual
+            </button>
+        </div>
+        
+        <p class="text-center text-slate-400 text-xs">Visual akan muncul di sini setelah diproses.</p>
+    </div>
+
+</body>
+</html>
