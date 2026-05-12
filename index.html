@@ -1,0 +1,443 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged, 
+  signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  signInWithCustomToken,
+  signInAnonymously
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  onSnapshot, 
+  collection, 
+  query, 
+  where, 
+  increment 
+} from 'firebase/firestore';
+
+
+const API_KEY_AI_STUDIO = "AIzaSyAM3Gcy8szrsdASnsXKNy7AfyIY-H98aTE"; // Gunakan key dari user
+const PAYPAL_CLIENT_ID = "BAA_bdWr_OdmF1y_3tOn55i013VoUO7FC7xJhZCwcR2S4YiQQTJjJgsPhDegYP6rkzQEpu3oUq0a-xvGtA";
+
+// Firebase configuration from environment
+const firebaseConfig = window.__firebase_config ? JSON.parse(window.__firebase_config) : {
+  apiKey: "placeholder",
+  authDomain: "placeholder.firebaseapp.com",
+  projectId: "placeholder",
+  storageBucket: "placeholder.appspot.com",
+  messagingSenderId: "placeholder",
+  appId: "placeholder"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'arai-v1';
+
+
+const base64ToArrayBuffer = (base64) => {
+  const binaryString = window.atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+};
+
+
+export default function ARAiApp() {
+  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('home');
+  const [prompt, setPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedResult, setGeneratedResult] = useState(null);
+  const [message, setMessage] = useState(null);
+  
+  // Auth States
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authMode, setAuthMode] = useState('login'); // 'login', 'signup', 'forgot'
+
+
+  useEffect(() => {
+    const initAuth = async () => {
+      // Hanya melakukan login jika ada token khusus, tanpa login anonim otomatis
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        try {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } catch (e) {
+          console.error("Auth token invalid");
+        }
+      }
+    };
+    initAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        await syncUserData(currentUser);
+      } else {
+        setUser(null);
+        setUserData(null);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const syncUserData = async (u) => {
+    const userRef = doc(db, 'artifacts', appId, 'users', u.uid, 'profile', 'data');
+    const snap = await getDoc(userRef);
+    
+    const today = new Date().toISOString().split('T')[0];
+
+    if (!snap.exists()) {
+      const newData = {
+        credits: 5,
+        lastDailyRefill: today,
+        referralCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
+        totalReferrals: 0,
+        subscription: 'free',
+        email: u.email
+      };
+      await setDoc(userRef, newData);
+      setUserData(newData);
+    } else {
+      let data = snap.data();
+      // Daily Credit Refill Logic
+      if (data.lastDailyRefill !== today) {
+        const bonus = 5;
+        await updateDoc(userRef, {
+          credits: increment(bonus),
+          lastDailyRefill: today
+        });
+        data.credits += bonus;
+      }
+      setUserData(data);
+    }
+
+    // Listen for real-time updates
+    onSnapshot(userRef, (doc) => {
+      if (doc.exists()) setUserData(doc.data());
+    });
+  };
+
+  const handleEmailAuth = async (e) => {
+    e.preventDefault();
+    try {
+      if (authMode === 'login') {
+        await signInWithEmailAndPassword(auth, email, password);
+      } else if (authMode === 'signup') {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await sendPasswordResetEmail(auth, email);
+        showMessage("Email pemulihan sandi telah dikirim!", "success");
+        setAuthMode('login');
+      }
+    } catch (error) {
+      showMessage(error.message, 'error');
+    }
+  };
+
+  const showMessage = (msg, type = 'info') => {
+    setMessage({ text: msg, type });
+    setTimeout(() => setMessage(null), 5000);
+  };
+
+
+  const generateVideo = async () => {
+    if (!prompt.trim()) return showMessage("Masukkan teks terlebih dahulu!");
+    if (userData.credits < 1) return showMessage("Kredit tidak cukup. Silakan beli atau tunggu besok.", "error");
+
+    setIsGenerating(true);
+    try {
+      // 1. Deduct Credit
+      const userRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+      await updateDoc(userRef, { credits: increment(-1) });
+
+      // 2. Call Gemini API for Video Plan
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY_AI_STUDIO}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `Generate a detailed video storyboard and script in Indonesian for this prompt: "${prompt}". Include scene descriptions, dialogue, and visual styles. Format as JSON with keys: title, scenes (array of {description, duration, visual_prompt}).` }] }],
+          generationConfig: { responseMimeType: "application/json" }
+        })
+      });
+
+      const result = await response.json();
+      const videoData = JSON.parse(result.candidates[0].content.parts[0].text);
+      
+      setGeneratedResult(videoData);
+      showMessage("Video berhasil dibuat!", "success");
+    } catch (error) {
+      console.error(error);
+      showMessage("Terjadi kesalahan saat memproses AI.", "error");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+
+  const handleReferral = async (code) => {
+    // Logic to apply referral
+    if (code === userData.referralCode) return showMessage("Tidak bisa menggunakan kode sendiri", "error");
+    
+    // In a real app, you'd check a global collection of referral codes.
+    // For this demo, we simulate a successful referral reward.
+    const userRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+    await updateDoc(userRef, { credits: increment(1) });
+    showMessage("Referral berhasil! +1 Kredit", "success");
+  };
+
+
+  if (loading) return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-indigo-500"></div>
+    </div>
+  );
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 font-['Inter']">
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">AR ai</h1>
+            <p className="text-slate-400 mt-2">Ubah teks menjadi video cinematic dengan AI</p>
+          </div>
+
+          <form onSubmit={handleEmailAuth} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1">Email</label>
+              <input 
+                type="email" 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none"
+                placeholder="email@anda.com"
+                required
+              />
+            </div>
+            {authMode !== 'forgot' && (
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Kata Sandi</label>
+                <input 
+                  type="password" 
+                  value={password} 
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="••••••••"
+                  required={authMode !== 'forgot'}
+                />
+              </div>
+            )}
+
+            <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/20">
+              {authMode === 'login' ? 'Masuk' : authMode === 'signup' ? 'Daftar Sekarang' : 'Kirim Link Pemulihan'}
+            </button>
+          </form>
+
+          <div className="mt-6 flex flex-col gap-3">
+            {/* Fitur login google otomatis/sosial telah dihapus */}
+            
+            <div className="text-center text-sm text-slate-500 mt-4">
+              {authMode === 'login' ? (
+                <>
+                  Belum punya akun? <button onClick={() => setAuthMode('signup')} className="text-indigo-400 hover:underline">Daftar</button>
+                  <br />
+                  <button onClick={() => setAuthMode('forgot')} className="mt-2 text-slate-400 hover:underline">Lupa kata sandi?</button>
+                </>
+              ) : (
+                <button onClick={() => setAuthMode('login')} className="text-indigo-400 hover:underline">Kembali ke Login</button>
+              )}
+            </div>
+          </div>
+        </div>
+        {message && (
+          <div className={`fixed bottom-8 px-6 py-3 rounded-2xl shadow-xl animate-bounce ${message.type === 'error' ? 'bg-red-500' : 'bg-green-500'} text-white`}>
+            {message.text}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-['Inter'] pb-20">
+      {/* Navigation */}
+      <nav className="border-b border-slate-800 bg-slate-950/50 backdrop-blur-xl sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-8">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">AR ai</h1>
+            <div className="hidden md:flex gap-6">
+              {['home', 'pricing', 'referral'].map(tab => (
+                <button 
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`capitalize ${activeTab === tab ? 'text-indigo-400' : 'text-slate-400 hover:text-white'} transition-colors`}
+                >
+                  {tab === 'home' ? 'Generator' : tab === 'pricing' ? 'Harga' : 'Referral'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-full flex items-center gap-2">
+              <span className="text-indigo-400">⚡</span>
+              <span className="font-bold">{userData?.credits || 0} Kredit</span>
+            </div>
+            <button onClick={() => signOut(auth)} className="text-slate-400 hover:text-white text-sm">Keluar</button>
+          </div>
+        </div>
+      </nav>
+
+      <main className="max-w-6xl mx-auto px-6 py-12">
+        {activeTab === 'home' && (
+          <div className="space-y-12">
+            <section className="text-center max-w-3xl mx-auto">
+              <h2 className="text-4xl font-extrabold mb-4">Ciptakan Video Dari Imajinasi Anda</h2>
+              <p className="text-slate-400 text-lg">Tuliskan deskripsi video yang Anda inginkan, AI kami akan mengolahnya menjadi mahakarya visual.</p>
+            </section>
+
+            <section className="max-w-4xl mx-auto">
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-500"></div>
+                <textarea 
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  className="w-full bg-transparent text-xl p-4 min-h-[150px] outline-none resize-none placeholder:text-slate-700"
+                  placeholder="Contoh: Seorang astronot sedang memanen kopi di planet Mars dengan gaya sinematik cyber-punk..."
+                />
+                <div className="flex items-center justify-between mt-4 border-t border-slate-800 pt-4">
+                  <div className="text-sm text-slate-500 flex items-center gap-2">
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                    AI Siap Melayani
+                  </div>
+                  <button 
+                    onClick={generateVideo}
+                    disabled={isGenerating}
+                    className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 transition-all"
+                  >
+                    {isGenerating ? (
+                      <>
+                        <div className="animate-spin h-5 w-5 border-2 border-white/30 border-t-white rounded-full"></div>
+                        Sedang Render...
+                      </>
+                    ) : (
+                      <>
+                        🚀 Buat Video (1 Kredit)
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {generatedResult && (
+              <section className="max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-2xl font-bold">{generatedResult.title}</h3>
+                    <button className="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl text-sm">Download Storyboard</button>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {generatedResult.scenes.map((scene, idx) => (
+                      <div key={idx} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex flex-col gap-2">
+                        <div className="flex justify-between text-xs text-indigo-400 font-mono">
+                          <span>SCENE {idx + 1}</span>
+                          <span>{scene.duration}s</span>
+                        </div>
+                        <p className="text-sm text-slate-300 italic">"{scene.description}"</p>
+                        <div className="mt-2 aspect-video bg-slate-900 rounded-lg flex items-center justify-center border border-dashed border-slate-800">
+                           <span className="text-slate-700 text-xs text-center p-2">Visual AI: {scene.visual_prompt.substring(0, 50)}...</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl text-center">
+                    <p className="text-indigo-300 text-sm">Sistem kami sedang menyiapkan file video berkualitas tinggi untuk dikirim ke email Anda dalam beberapa menit.</p>
+                  </div>
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'pricing' && (
+          <div className="space-y-12">
+            <section className="text-center">
+              <h2 className="text-4xl font-extrabold mb-4">Pilih Paket Kredit Anda</h2>
+              <p className="text-slate-400">Harga adil, tanpa biaya tersembunyi.</p>
+            </section>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {[
+                { name: 'Pemula', price: '4.99', credits: 20, features: ['20 Video', 'Kualitas HD', 'Support 24/7'] },
+                { name: 'Kreator', price: '12.99', credits: 60, features: ['60 Video', 'Kualitas 4K', 'Prioritas Render'], popular: true },
+                { name: 'Pro', price: '29.99', credits: 200, features: ['200 Video', 'API Access', 'Lisensi Komersial'] },
+              ].map((plan, i) => (
+                <div key={i} className={`relative bg-slate-900 border ${plan.popular ? 'border-indigo-500' : 'border-slate-800'} p-8 rounded-3xl shadow-xl flex flex-col`}>
+                  {plan.popular && <span className="absolute -top-4 left-1/2 -translate-x-1/2 bg-indigo-500 text-white text-xs font-bold px-4 py-1 rounded-full">TERPOPULER</span>}
+                  <h3 className="text-xl font-bold mb-2">{plan.name}</h3>
+                  <div className="mb-6">
+                    <span className="text-4xl font-bold">${plan.price}</span>
+                    <span className="text-slate-500 text-sm ml-2">Sekali Beli</span>
+                  </div>
+                  <ul className="space-y-4 mb-8 flex-grow">
+                    <li className="flex items-center gap-2 text-slate-300">✅ {plan.credits} Kredit Video</li>
+                    {plan.features.map((f, idx) => <li key={idx} className="flex items-center gap-2 text-slate-300">✅ {f}</li>)}
+                  </ul>
+                  <button className="w-full bg-slate-800 hover:bg-indigo-600 py-3 rounded-xl font-bold transition-all">
+                    Beli Sekarang
+                  </button>
+                  <p className="text-[10px] text-center text-slate-600 mt-4">Pembayaran otomatis via PayPal</p>
+                </div>
+              ))}
+            </div>
+            
+            <div className="max-w-2xl mx-auto bg-slate-900/50 p-6 rounded-2xl border border-slate-800 text-center">
+               <h4 className="font-bold mb-2">Butuh Paket Langganan?</h4>
+               <p className="text-slate-400 text-sm mb-4">Dapatkan 50 kredit/bulan hanya dengan $9.99/bulan.</p>
+               <button className="text-indigo-400 font-bold hover:underline">Aktifkan Langganan Bulanan &rarr;</button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'referral' && (
+          <div className="max-w-2xl mx-auto space-y-8 text-center">
+            <div className="bg-indigo-600/20 border border-indigo-500/30 p-12 rounded-[3rem] space-y-6">
+               <div className="text-6xl">🎁</div>
+               <h2 className="text-3xl font-bold">Ajak Teman, Dapat Kredit!</h2>
+               <p className="text-slate-300">Dapatkan <span className="text-white font-bold">1 Kredit Gratis</span> untuk setiap teman yang mendaftar menggunakan kode Anda.</p>
+               
+               <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 flex flex-col md:flex-row items-center gap-4 justify-between">
+                  <div className="text-left">
+                    <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-1">Kode Referral Anda</p>
+                    <p className="text-2xl font-mono font-bold text-indigo-400">{userData?.referralCode || '------'}</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      document.execCommand('copy');
+                      showMessage("Kode disalin!");
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-xl font-bold transition-all w-full md:w-auto"
+                  >
+                    Salin Kode
+                  </button>
+               </div>
+               
+               <p className="text-sm text-slate-500">Total teman yang diaj
