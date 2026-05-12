@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR ai - Text to Video Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-app-compat.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-auth-compat.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-firestore-compat.min.js"></script>
+    <script src="https://www.paypal.com/sdk/js?client-id=BAA_bdWr_OdmF1y_3tOn55i013VoUO7FC7xJhZCwcR2S4YiQQTJjJgsPhDegYP6rkzQEpu3oUq0a-xvGtA&currency=USD"></script>
+    <style>
+        .glass { background: rgba(31, 41, 55, 0.7); backdrop-filter: blur(10px); }
+        /* Style Watermark */
+        .watermark-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-25deg);
+            font-size: 1.5rem;
+            font-weight: 900;
+            color: rgba(255, 255, 255, 0.1);
+            pointer-events: none;
+            text-align: center;
+            line-height: 1.2;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-black text-white font-sans min-h-screen">
+
+    <nav class="p-4 border-b border-gray-800 flex justify-between items-center sticky top-0 bg-black z-50">
+        <h1 class="text-2xl font-black text-blue-500 tracking-tighter">AR ai</h1>
+        <div id="auth-status"></div>
+    </nav>
+
+    <div id="auth-form" class="max-w-md mx-auto mt-20 p-8 glass rounded-2xl border border-gray-800 shadow-2xl">
+        <h2 id="form-title" class="text-2xl font-bold mb-6 text-center text-blue-400">Selamat Datang</h2>
+        <div class="space-y-4">
+            <input type="email" id="email" placeholder="Email" class="w-full p-3 rounded-xl bg-gray-900 border border-gray-700 outline-none focus:border-blue-500">
+            <input type="password" id="password" placeholder="Password" class="w-full p-3 rounded-xl bg-gray-900 border border-gray-700 outline-none focus:border-blue-500">
+            <button id="main-auth-btn" class="w-full bg-blue-600 hover:bg-blue-500 p-4 rounded-xl font-bold transition">MASUK</button>
+            <div class="text-center mt-4">
+                <a href="#" id="toggle-auth" class="text-xs text-blue-400 hover:underline">Belum punya akun? Daftar di sini</a>
+            </div>
+        </div>
+    </div>
+
+    <main id="app-content" class="hidden container mx-auto p-4 lg:p-10">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <div class="lg:col-span-2 space-y-6">
+                <section class="glass p-6 rounded-3xl border border-gray-800">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold">🎬 Video Generator</h2>
+                        <span id="user-tier" class="text-[10px] px-2 py-1 rounded bg-gray-800 border border-gray-700">Checking...</span>
+                    </div>
+                    <textarea id="prompt-input" rows="5" class="w-full bg-gray-900/50 p-5 rounded-2xl border border-gray-700 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Deskripsikan video Anda..."></textarea>
+                    <button id="generate-btn" class="mt-4 w-full bg-blue-600 p-4 rounded-2xl font-bold shadow-lg hover:bg-blue-500 transition">BUAT VIDEO (1 Kredit)</button>
+                    
+                    <div id="result-area" class="mt-8 hidden relative rounded-2xl border border-gray-700 bg-gray-950 min-h-[200px] overflow-hidden">
+                        <div id="wm-text" class="watermark-overlay hidden">
+                            AR AI GENERATOR<br>FREE VERSION<br>UPGRADE TO REMOVE
+                        </div>
+                        <div id="ai-response" class="p-6 text-gray-400 font-mono text-sm leading-relaxed whitespace-pre-wrap"></div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="space-y-6">
+                <div class="glass p-6 rounded-3xl border border-blue-900/30">
+                    <p id="display-email" class="text-xs text-gray-500 mb-1"></p>
+                    <h3 class="text-gray-400 text-sm">Kredit Anda:</h3>
+                    <div class="text-5xl font-black" id="credit-count">0</div>
+                    <p class="text-[10px] text-green-500 mt-2 font-bold">+5 Kredit gratis setiap hari</p>
+                </div>
+
+                <div class="glass p-6 rounded-3xl border border-gray-800">
+                    <h3 class="font-bold mb-2">Upgrade Pro</h3>
+                    <p class="text-xs text-gray-400 mb-4">Hilangkan watermark & dapatkan fitur prioritas.</p>
+                    <div id="paypal-button-container"></div>
+                </div>
+
+                <div class="glass p-6 rounded-3xl border border-gray-800">
+                    <h3 class="text-xs font-bold text-gray-500 mb-2">REFERAL LINK</h3>
+                    <div id="ref-code" class="bg-black p-2 rounded text-blue-400 text-xs font-mono mb-2 text-center">AR-LOADING</div>
+                    <p class="text-[10px] text-gray-500 italic text-center">Bagi link untuk +1 kredit</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // CONFIG
+        const firebaseConfig = {
+            apiKey: "AIzaSyClLSO35yldEXJl0HJnQ3mTFo4kxZICs5k",
+            authDomain: "ar-ai-generator-8a388.firebaseapp.com",
+            projectId: "ar-ai-generator-8a388",
+            storageBucket: "ar-ai-generator-8a388.firebasestorage.app",
+            messagingSenderId: "871534184989",
+            appId: "1:871534184989:web:65ff5cab9e3db19b8414f4",
+            measurementId: "G-NDR1LQ7KXV"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const AI_KEY = "AIzaSyAgcaRt967erWBF5cPv71nxjyZlD0mvmRI"; // API KEY ANDA SUDAH TERPASANG
+
+        let isLogin = true;
+        let userData = null;
+
+        // AUTH TOGGLE
+        document.getElementById('toggle-auth').onclick = (e) => {
+            e.preventDefault();
+            isLogin = !isLogin;
+            document.getElementById('form-title').innerText = isLogin ? 'Masuk' : 'Daftar Akun';
+            document.getElementById('main-auth-btn').innerText = isLogin ? 'MASUK' : 'DAFTAR SEKARANG';
+            e.target.innerText = isLogin ? 'Belum punya akun? Daftar di sini' : 'Sudah punya akun? Login';
+        };
+
+        // LOGIN & REGISTER ACTION
+        document.getElementById('main-auth-btn').onclick = async () => {
+            const email = document.getElementById('email').value;
+            const pass = document.getElementById('password').value;
+            if(!email || !pass) return alert("Lengkapi data!");
+
+            try {
+                if(isLogin) {
+                    await auth.signInWithEmailAndPassword(email, pass);
+                } else {
+                    const res = await auth.createUserWithEmailAndPassword(email, pass);
+                    await db.collection('users').doc(res.user.uid).set({
+                        email: email,
+                        credits: 5,
+                        isPro: false,
+                        referralCode: 'AR-' + Math.random().toString(36).substring(7).toUpperCase(),
+                        lastDailyReset: firebase.firestore.Timestamp.now()
+                    });
+                    alert("Berhasil mendaftar! Anda dapat 5 kredit bonus.");
+                }
+            } catch (e) { alert(e.message); }
+        };
+
+        // TRACK AUTH STATE
+        auth.onAuthStateChanged(user => {
+            if(user) {
+                document.getElementById('auth-form').classList.add('hidden');
+                document.getElementById('app-content').classList.remove('hidden');
+                document.getElementById('auth-status').innerHTML = `<button onclick="auth.signOut()" class="text-xs bg-gray-800 px-3 py-1 rounded">Log Out</button>`;
+                
+                db.collection('users').doc(user.uid).onSnapshot(doc => {
+                    if(doc.exists) {
+                        userData = doc.data();
+                        updateUI(userData);
+                    }
+                });
+                renderPayPal();
+            } else {
+                document.getElementById('auth-form').classList.remove('hidden');
+                document.getElementById('app-content').classList.add('hidden');
+            }
+        });
+
+        function updateUI(data) {
+            document.getElementById('credit-count').innerText = data.credits;
+            document.getElementById('display-email').innerText = data.email;
+            document.getElementById('ref-code').innerText = data.referralCode;
+            
+            const tier = document.getElementById('user-tier');
+            tier.innerText = data.isPro ? "PRO USER" : "FREE USER";
+            tier.className = data.isPro ? "text-[10px] px-2 py-1 rounded bg-yellow-600 text-white font-bold" : "text-[10px] px-2 py-1 rounded bg-gray-800 text-gray-400";
+            
+            // Check Daily Bonus
+            const today = new Date().toDateString();
+            const last = data.lastDailyReset.toDate().toDateString();
+            if(today !== last) {
+                db.collection('users').doc(auth.currentUser.uid).update({
+                    credits: firebase.firestore.FieldValue.increment(5),
+                    lastDailyReset: firebase.firestore.Timestamp.now()
+                });
+            }
+        }
+
+        // GENERATOR ACTION
+        document.getElementById('generate-btn').onclick = async () => {
+            const prompt = document.getElementById('prompt-input').value;
+            if(!prompt) return alert("Isi deskripsi video!");
+            if(userData.credits < 1) return alert("Kredit habis! Silakan isi ulang.");
+
+            const btn = document.getElementById('generate-btn');
+            btn.disabled = true;
+            btn.innerText = "Processing AI...";
+
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${AI_KEY}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ contents: [{ parts: [{ text: `Create a professional video storyboard for: ${prompt}` }] }] })
+                });
+                const json = await res.json();
+                const output = json.candidates[0].content.parts[0].text;
+
+                // Update Database
+                await db.collection('users').doc(auth.currentUser.uid).update({
+                    credits: firebase.firestore.FieldValue.increment(-1)
+                });
+
+                // Show Result
+                document.getElementById('result-area').classList.remove('hidden');
+                document.getElementById('ai-response').innerText = output;
+                
+                // Watermark Logic
+                const wm = document.getElementById('wm-text');
+                if(!userData.isPro) {
+                    wm.classList.remove('hidden');
+                } else {
+                    wm.classList.add('hidden');
+                }
+
+            } catch (e) { alert("Error: " + e.message); }
+            finally {
+                btn.disabled = false;
+                btn.innerText = "BUAT VIDEO (1 Kredit)";
+            }
+        };
+
+        // PAYPAL
+        function renderPayPal() {
+            document.getElementById('paypal-button-container').innerHTML = '';
+            paypal.Buttons({
+                createOrder: (data, actions) => actions.order.create({ purchase_units: [{ amount: { value: '9.00' } }] }),
+                onApprove: (data, actions) => actions.order.capture().then(async () => {
+                    await db.collection('users').doc(auth.currentUser.uid).update({
+                        isPro: true,
+                        credits: firebase.firestore.FieldValue.increment(50)
+                    });
+                    alert("Pembayaran Berhasil! Status PRO Aktif.");
+                })
+            }).render('#paypal-button-container');
+        }
+    </script>
+</body>
+</html>
