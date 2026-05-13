@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR ai - Text to Video</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://www.paypal.com/sdk/js?client-id=BAA_bdWr_OdmF1y_3tOn55i013VoUO7FC7xJhZCwcR2S4YiQQTJjJgsPhDegYP6rkzQEpu3oUq0a-xvGtA&currency=USD"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        @keyframes pulse-border { 0% { border-color: rgba(59, 130, 246, 0.5); } 50% { border-color: rgba(168, 85, 247, 0.5); } 100% { border-color: rgba(59, 130, 246, 0.5); } }
+        .generating { animation: pulse-border 2s infinite; border-width: 2px; }
+    </style>
+</head>
+<body class="bg-zinc-950 text-white min-h-screen font-sans" x-data="appData()">
+
+    <!-- Navigasi -->
+    <nav class="p-5 flex justify-between items-center border-b border-white/10 glass sticky top-0 z-50">
+        <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent italic">AR ai</h1>
+        <div class="flex items-center gap-4">
+            <div class="hidden md:flex flex-col items-end">
+                <span class="text-[10px] text-zinc-500 uppercase tracking-widest">Saldo Kredit</span>
+                <span x-text="credits" class="font-bold text-yellow-400 leading-none text-lg"></span>
+            </div>
+            <template x-if="isPremium">
+                <span class="text-[10px] bg-green-500/20 text-green-400 border border-green-500/50 px-2 py-1 rounded-full font-bold">PRO ACCOUNT</span>
+            </template>
+            <button @click="toggleLang()" class="w-8 h-8 rounded-full border border-white/10 flex items-center justify-center hover:bg-white/5 transition" x-text="lang === 'id' ? 'ID' : 'EN'"></button>
+        </div>
+    </nav>
+
+    <main class="max-w-4xl mx-auto p-6 space-y-8">
+        
+        <!-- Generator Section -->
+        <section class="glass p-6 md:p-10 rounded-[2rem] space-y-6 transition-all" :class="loading ? 'generating' : ''">
+            <div class="space-y-2">
+                <h2 class="text-xl font-semibold" x-text="lang === 'id' ? 'Buat Video AI Baru' : 'Create New AI Video'"></h2>
+                <textarea x-model="prompt" rows="3" class="w-full bg-black/60 border border-white/10 rounded-2xl p-5 focus:ring-2 focus:ring-blue-500 outline-none transition text-zinc-200" :placeholder="lang === 'id' ? 'Jelaskan video yang ingin Anda buat secara detail...' : 'Describe the video you want to create in detail...'"></textarea>
+            </div>
+
+            <div class="flex flex-col md:flex-row gap-4">
+                <button @click="generateVideo()" :disabled="loading || credits < 1" class="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 py-4 rounded-2xl font-bold shadow-xl shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition disabled:opacity-30">
+                    <span x-show="!loading" x-text="lang === 'id' ? 'Generate Video (1 Kredit)' : 'Generate Video (1 Credit)'"></span>
+                    <span x-show="loading" class="flex items-center justify-center gap-2">
+                        <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        Rendering AI...
+                    </span>
+                </button>
+
+                <!-- FITUR UNDUH (Hanya Muncul Jika Video Ada) -->
+                <button x-show="videoUrl && !loading" @click="downloadVideo()" class="bg-zinc-800 hover:bg-zinc-700 px-8 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 border border-white/10 transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor italic">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    <span x-text="lang === 'id' ? 'Unduh Video' : 'Download Video'"></span>
+                </button>
+            </div>
+
+            <!-- Video Display Area -->
+            <div x-show="videoUrl || loading" class="mt-8 relative rounded-3xl overflow-hidden border border-white/10 bg-zinc-900 shadow-2xl aspect-video flex flex-col items-center justify-center group">
+                <template x-if="loading">
+                    <div class="text-center space-y-4">
+                        <div class="w-16 h-1 w-48 bg-zinc-800 rounded-full mx-auto overflow-hidden">
+                            <div class="h-full bg-blue-500 animate-[progress_3s_ease-in-out]"></div>
+                        </div>
+                        <p class="text-zinc-500 text-sm animate-pulse">Menghubungkan ke Gemini AI Studio...</p>
+                    </div>
+                </template>
+
+                <template x-if="videoUrl && !loading">
+                    <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-800 to-black">
+                        <p class="text-zinc-400 italic px-10 text-center" x-text="'Result for: ' + prompt"></p>
+                        
+                        <!-- WATERMARK OVERLAY -->
+                        <div x-show="!isPremium" class="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
+                            <span class="text-white/10 text-5xl md:text-8xl font-black rotate-12 border-8 border-white/5 p-8 rounded-full uppercase tracking-[2em]">AR AI</span>
+                            <div class="absolute bottom-6 right-6 bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 flex items-center gap-2">
+                                <div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                                <span class="text-[10px] font-bold tracking-tighter opacity-70">WATERMARK: UPGRADE TO REMOVE</span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <!-- Payment & Upgrade -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="glass p-8 rounded-[2rem] border-purple-500/20 relative overflow-hidden">
+                <div class="absolute top-0 right-0 p-4 opacity-10 rotate-12">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-24 w-24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-7.714 2.143L11 21l-2.286-6.857L1 12l7.714-2.143L11 3z" /></svg>
+                </div>
+                <h3 class="text-2xl font-bold mb-2">PRO Plan</h3>
+                <p class="text-zinc-400 text-sm mb-6 leading-relaxed">Hapus watermark selamanya, prioritas rendering, dan dapatkan 500 kredit instan.</p>
+                <div id="paypal-button-container-sub"></div>
+            </div>
+
+            <div class="glass p-8 rounded-[2rem] border-yellow-500/20">
+                <h3 class="text-2xl font-bold mb-2">Top Up</h3>
+                <p class="text-zinc-400 text-sm mb-6 leading-relaxed">Butuh kredit tambahan? Isi ulang 10 kredit hanya seharga $5 USD.</p>
+                <div id="paypal-button-container-credits"></div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        function appData() {
+            return {
+                lang: 'id',
+                credits: 5,
+                isPremium: false,
+                prompt: '',
+                loading: false,
+                videoUrl: false,
+                apiKey: 'AIzaSyAgcaRt967erWBF5cPv71nxjyZlD0mvmRI',
+
+                toggleLang() {
+                    this.lang = this.lang === 'id' ? 'en' : 'id';
+                },
+
+                generateVideo() {
+                    if(this.prompt.length < 5) {
+                        alert(this.lang === 'id' ? 'Mohon masukkan deskripsi yang lebih jelas.' : 'Please enter a clearer description.');
+                        return;
+                    }
+                    this.loading = true;
+                    this.videoUrl = false;
+                    
+                    // Simulasi Render AI Studio
+                    setTimeout(() => {
+                        this.credits -= 1;
+                        this.loading = false;
+                        this.videoUrl = true;
+                    }, 4000);
+                },
+
+                downloadVideo() {
+                    if(!this.isPremium) {
+                        const confirmDl = confirm(this.lang === 'id' 
+                            ? 'Video Anda akan diunduh dengan Watermark. Upgrade ke PRO untuk hasil bersih. Lanjutkan?' 
+                            : 'Your video will be downloaded with a Watermark. Upgrade to PRO for clean results. Continue?');
+                        if(!confirmDl) return;
+                    }
+
+                    // Logika Unduh (Simulasi blob download)
+                    const link = document.createElement('a');
+                    link.href = "#"; // Di aplikasi asli, ini adalah URL video dari storage
+                    link.download = `AR-AI-Video-${Date.now()}.mp4`;
+                    alert(this.lang === 'id' 
+                        ? 'Menyiapkan file video... Unduhan akan segera dimulai.' 
+                        : 'Preparing video file... Download will start shortly.');
+                    // link.click(); // Trigger download asli
+                },
+
+                init() {
+                    this.initPayPal();
+                },
+
+                initPayPal() {
+                    // Tombol Topup
+                    paypal.Buttons({
+                        style: { shape: 'pill', color: 'gold', layout: 'vertical', label: 'buynow' },
+                        createOrder: (data, actions) => { return actions.order.create({ purchase_units: [{ amount: { value: '5.00' } }] }); },
+                        onApprove: (data, actions) => {
+                            return actions.order.capture().then(details => {
+                                this.credits += 10;
+                                alert('Success! +10 Credits added.');
+                            });
+                        }
+                    }).render('#paypal-button-container-credits');
+
+                    // Tombol Subscription
+                    paypal.Buttons({
+                        style: { shape: 'pill', color: 'blue', layout: 'vertical', label: 'subscribe' },
+                        createOrder: (data, actions) => { return actions.order.create({ purchase_units: [{ amount: { value: '15.00' } }] }); },
+                        onApprove: (data, actions) => {
+                            return actions.order.capture().then(details => {
+                                this.isPremium = true;
+                                this.credits += 500;
+                                alert('Welcome to PRO! Watermark removed.');
+                            });
+                        }
+                    }).render('#paypal-button-container-sub');
+                }
+            }
+        }
+    </script>
+
+    <style>
+        @keyframes progress { from { width: 0%; } to { width: 100%; } }
+    </style>
+</body>
+</html>
