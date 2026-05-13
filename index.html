@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR ai - Text to Video</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://www.paypal.com/sdk/js?client-id=BAA_bdWr_OdmF1y_3tOn55i013VoUO7FC7xJhZCwcR2S4YiQQTJjJgsPhDegYP6rkzQEpu3oUq0a-xvGtA&currency=USD"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    </style>
+</head>
+<body class="bg-zinc-950 text-white min-h-screen font-sans" x-data="appData()">
+
+    <!-- Navigation -->
+    <nav class="p-5 flex justify-between items-center border-b border-white/10 glass sticky top-0 z-50">
+        <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">AR ai</h1>
+        <div class="flex items-center gap-4">
+            <span class="text-sm bg-zinc-800 px-3 py-1 rounded-full">Kredit: <span x-text="credits" class="font-bold text-yellow-400"></span></span>
+            <template x-if="isPremium">
+                <span class="text-xs bg-green-500/20 text-green-400 border border-green-500/50 px-2 py-1 rounded">PREMIUM (No Watermark)</span>
+            </template>
+            <button @click="lang = lang === 'id' ? 'en' : 'id'" class="text-sm hover:text-blue-400 transition" x-text="lang === 'id' ? '🇮🇩 ID' : '🇺🇸 EN'"></button>
+            <button class="bg-red-500/10 text-red-500 px-4 py-1 rounded-lg text-sm border border-red-500/20">Logout</button>
+        </div>
+    </nav>
+
+    <main class="max-w-4xl mx-auto p-6 space-y-8">
+        
+        <!-- Referral & Info -->
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="glass p-4 rounded-2xl">
+                <p class="text-xs text-zinc-400 mb-1" x-text="lang === 'id' ? 'Link Referal Anda' : 'Your Referral Link'"></p>
+                <div class="flex gap-2">
+                    <input type="text" readonly value="https://ar-ai.com/ref/user77" class="bg-black/50 border border-white/10 rounded px-2 py-1 text-xs w-full text-blue-400">
+                    <button class="text-xs bg-white text-black px-3 rounded font-bold">Salin</button>
+                </div>
+                <p class="text-[10px] mt-2 text-zinc-500 italic">*Dapatkan 1 Kredit per orang yang mendaftar</p>
+            </div>
+            <div class="glass p-4 rounded-2xl flex flex-col justify-center">
+                <p class="text-sm" x-text="lang === 'id' ? 'Bonus harian aktif: +5 Kredit/hari' : 'Daily bonus active: +5 Credits/day'"></p>
+            </div>
+        </section>
+
+        <!-- Video Generator Section -->
+        <section class="glass p-8 rounded-3xl space-y-6">
+            <div>
+                <label class="block mb-2 font-medium" x-text="lang === 'id' ? 'Masukkan Deskripsi Video' : 'Enter Video Description'"></label>
+                <textarea x-model="prompt" rows="4" class="w-full bg-black/40 border border-white/10 rounded-xl p-4 focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Contoh: Pemandangan gunung es di masa depan dengan mobil terbang..."></textarea>
+            </div>
+
+            <button @click="generateVideo()" :disabled="loading || credits < 1" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 py-4 rounded-xl font-bold shadow-lg shadow-blue-500/20 hover:scale-[1.01] transition disabled:opacity-50">
+                <span x-show="!loading" x-text="lang === 'id' ? 'Buat Video (1 Kredit)' : 'Generate Video (1 Credit)'"></span>
+                <span x-show="loading">Memproses AI...</span>
+            </button>
+
+            <!-- Video Result Area -->
+            <div x-show="videoUrl" class="mt-8 relative rounded-2xl overflow-hidden border border-white/10 bg-black aspect-video flex items-center justify-center">
+                <div class="text-center">
+                    <p class="text-zinc-500">Video Placeholder</p>
+                    <p class="text-xs text-zinc-600" x-text="`Prompt: ${prompt}`"></p>
+                </div>
+                
+                <!-- WATERMARK LOGIC -->
+                <template x-if="!isPremium">
+                    <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-30 select-none">
+                        <h1 class="text-6xl font-bold rotate-12 border-4 border-white p-4 text-white">AR AI WATERMARK</h1>
+                    </div>
+                </template>
+                <template x-if="!isPremium">
+                    <div class="absolute bottom-4 right-4 bg-black/50 p-2 rounded text-[10px]">
+                        Made with AR ai (Free Version)
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <!-- Pricing Section -->
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Buy Credits -->
+            <div class="glass p-6 rounded-3xl border-yellow-500/30">
+                <h3 class="text-xl font-bold mb-4" x-text="lang === 'id' ? 'Beli Kredit' : 'Buy Credits'"></h3>
+                <div class="space-y-3 mb-6">
+                    <button @click="selectedPlan='10credits'" class="w-full text-left p-3 rounded-lg border border-white/10 hover:bg-white/5 flex justify-between items-center" :class="selectedPlan==='10credits' ? 'border-blue-500 bg-blue-500/10' : ''">
+                        <span>10 Kredit</span>
+                        <span class="font-bold">$5.00</span>
+                    </button>
+                </div>
+                <div id="paypal-button-container-credits"></div>
+            </div>
+
+            <!-- Subscription -->
+            <div class="glass p-6 rounded-3xl border-purple-500/30">
+                <h3 class="text-xl font-bold mb-4" x-text="lang === 'id' ? 'Langganan Pro' : 'Pro Subscription'"></h3>
+                <ul class="text-sm space-y-2 text-zinc-400 mb-6">
+                    <li>✅ Tanpa Watermark</li>
+                    <li>✅ 500 Kredit / Bulan</li>
+                    <li>✅ Prioritas Antrian AI</li>
+                </ul>
+                <div id="paypal-button-container-sub"></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        function appData() {
+            return {
+                lang: 'id',
+                credits: 5,
+                isPremium: false,
+                prompt: '',
+                loading: false,
+                videoUrl: false,
+                selectedPlan: '10credits',
+                apiKey: 'AIzaSyAgcaRt967erWBF5cPv71nxjyZlD0mvmRI',
+
+                init() {
+                    this.initPayPal();
+                },
+
+                generateVideo() {
+                    if(this.credits > 0) {
+                        this.loading = true;
+                        // Simulasi API Call ke AI Studio
+                        setTimeout(() => {
+                            this.credits -= 1;
+                            this.loading = false;
+                            this.videoUrl = true;
+                            alert(this.lang === 'id' ? 'Video Berhasil Dibuat!' : 'Video Successfully Generated!');
+                        }, 3000);
+                    }
+                },
+
+                initPayPal() {
+                    // Tombol Beli Kredit
+                    paypal.Buttons({
+                        createOrder: (data, actions) => {
+                            return actions.order.create({
+                                purchase_units: [{ amount: { value: '5.00' } }]
+                            });
+                        },
+                        onApprove: (data, actions) => {
+                            return actions.order.capture().then(details => {
+                                this.credits += 10;
+                                alert('Pembelian 10 Kredit Berhasil!');
+                            });
+                        }
+                    }).render('#paypal-button-container-credits');
+
+                    // Tombol Langganan
+                    paypal.Buttons({
+                        createOrder: (data, actions) => {
+                            return actions.order.create({
+                                purchase_units: [{ amount: { value: '15.00' }, description: 'Pro Subscription' }]
+                            });
+                        },
+                        onApprove: (data, actions) => {
+                            return actions.order.capture().then(details => {
+                                this.isPremium = true;
+                                this.credits += 500;
+                                alert('Terima kasih! Anda sekarang anggota Premium (Tanpa Watermark)');
+                            });
+                        }
+                    }).render('#paypal-button-container-sub');
+                }
+            }
+        }
+    </script>
+</body>
+</html>
